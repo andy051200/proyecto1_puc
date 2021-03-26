@@ -47,7 +47,7 @@ reset_timer1 macro
     movwf   TMR1L   ; se carga 2880 que equivale a 0x0BDC
     movlw   0x0B    ; este se carga en los MSB
     movwf   TMR1H   ; registro al que se mueve
-    bcf	    PIR1, 0 ;bajo la bandera
+    bsf	    PIR1, 0 ;bajo la bandera
     endm   
     
 ;--------------------- variables ----------------------------------------------
@@ -100,11 +100,11 @@ push:
     movwf	W_TEMP
     swapf	STATUS, W
     movwf	STATUS_TEMP	
+      
 isr:
-    btfsc	PIR1,0	    ;ver si está 
-    call	sem_verde1 ;interruption_tm1
-    
-    btfsc	RBIF
+    btfsc	PIR1,0		;ver si hay interrupcion timer1
+    call	sem_verde1     
+    btfsc	RBIF		;ver si hay interrupcion on change PortB
     call	select_semaforo
      
 pop:
@@ -117,33 +117,19 @@ pop:
 ;------------------- subrutinas de semaforos
 ;subrutinas de selección de modos de configuracion de semaforos
 
-;if_semaforo:		    ;si desea modificar algun semaforo
-;    bsf		PORTE,0	    ;se prenden leds para identificar que se entró
-;    bsf		PORTE,1
-;    bsf		PORTE,2
-;    ;idealmente prender a lo loco el display gris    
-;    
-;    banksel	PORTB
-;    btfsc	PORTB,3	    ;opcion si quiere aceptar configurar algun sem
-;    ;incf	verde1
-;    goto	select_semaforo ;manda a configuracion
-;    
-;    
-;    btfsc	PORTB,5	  ;opcion si quiere cancelar configurar algun sem
-;    clrf	PORTE	  ;apagar las leds del puerto
-;    goto	
-    
+
 select_semaforo:
     clrf	PORTE	;por si las moscas un clrf en el portE
+    bsf		PORTE,0
     btfsc	PORTB,3
     goto	$+3
     incf	modos	    ;esto me permite comparar el modo al que quiere ir
     incf	PORTE
     goto	comparador1
   
-    
+    ;return
 comparador1:
-    movf	modo1,W 		; mover contador de bits a reg W
+    movf	modo1,W 	; mover contador de bits a reg W
     subwf	PORTE,W		; restar variable contadora del PortB (auto leds)
     btfss	ZERO		; evaluar si bit zero = 0 para confirmar
     goto	comparador2	; si la resta =!0, se vuelve a comparar
@@ -212,6 +198,7 @@ select_aceptarono:
     btfsc	PORTB,1	    ;si desea aceptar los cambios se reinicia
     reset_timer1
     btfsc	PORTB,2	    ;si no desea aceptar los cambios, regresa
+    bcf		RBIF
     return
     
 ;------------------- subrutinas de semaforos    
@@ -437,7 +424,7 @@ main:
     call    timer1_config
     call    interruption_config
     call    cargarvariables
-        
+    clrf    PORTB    
 ;------------------------ loop de programa ------------------------------------
 loop:
     goto    loop
@@ -489,9 +476,16 @@ io_config:
     bcf		TRISB,0 ; se limpia para salida sem
     bcf		TRISB,1	; se limpia para salida sem
     bcf		TRISB,2 ; se limpia para salida sem
-    bsf		TRISB,3	; set para entrada boton1
-    bsf		TRISB,4 ; set para entrada boton2
-    bsf		TRISB,5 ; set para entrada boton3
+    
+    bsf		TRISB,3
+    bsf		TRISB,4
+    bsf		TRISB,5
+    
+    bcf	    OPTION_REG,7
+    bsf	    WPUB,3
+    bsf	    WPUB,4
+    bsf	    WPUB,5
+
     clrf	TRISC	; PortC como salida
     clrf	TRISD	; PortD como salida
     clrf	TRISE	; PortE como salida
@@ -502,9 +496,11 @@ io_config:
     bcf		PORTB, 0    ; salida de sem
     bcf		PORTB, 1    ; salida de sem
     bcf		PORTB, 2    ; salida de sem
-    bsf		PORTB, 3    ; entrada boton1
-    bsf		PORTB, 4    ; entrada boton2
-    bsf		PORTB, 5    ; entrada boton3
+    
+    bsf		PORTB,3
+    bsf		PORTB,4
+    bsf		PORTB,5
+
     clrf	PORTC	    ; PortC como salida
     clrf	PORTD	    ; PortD como salida
     clrf	PORTE	    ; PortE como salida para displays de modos
@@ -555,22 +551,29 @@ timer1_config:
 interruption_config:
     banksel	PORTA
     banksel	INTCON
-    bsf		INTCON,7 ; interrupciones globales, encendido
-    bsf		INTCON,6 ; interrupcion de perifericos, encendido
-    bsf		INTCON,5 ; interrupcion Timer0, encendido
-    bcf		INTCON,4 ; interrupcion externa enable, apagado
-    bsf		INTCON,3 ; interreption on chance PortB enable bit, encendido
-    bsf		INTCON,2 ; interrupcion Timer0, encendido
-    bcf		INTCON,1 ; interrupcion externa, apagado
-    bsf		INTCON,0 ; interruption on change PortB, encendida
+    bsf	    GIE
+    bsf	    T0IE
+    bcf	    T0IF
+    bsf	    PIE1, 0 
+    bcf	    PIR1, 0 ;TMR1IF
+    bsf	    RBIE
+    bcf	    RBIF
+
     ;interrupciones del timer1 y timer2
     banksel	PIE1	 
     bsf		PIE1,0	    ; enable bit de interrupcion tmr1, encendido
     ;el resto van apagados
     
     banksel	PIR1
-    bsf		PIR1,0	    ; interrupcion tmr1, encendida
+    bcf		PIR1,0	    ; interrupcion tmr1, encendida
     ;el resto van apagados
+    ;banksel	TRISA
+;    bcf		OPTION_REG,7	;se habilita weak pull up
+;    bsf		WPUB,3		;seleccion de pines
+;    bsf		WPUB,4		;seleccion de pines
+;    bsf		WPUB,5		;seleccion de pines
+    
+    banksel	TRISB
     banksel	IOCB	    
     bsf		IOCB,3	    ; interrupt on change PortB, 3 encendido
     bsf		IOCB,4	    ; interrupt on change PortB, 4 encendido
