@@ -18,7 +18,7 @@ PROCESSOR 16F887
 ;------configuration word 1----------------------------------------------------
 CONFIG  FOSC=INTRC_NOCLKOUT ;se declara osc interno
 CONFIG  WDTE=OFF            ; Watchdog Timer apagado
-CONFIG  PWRTE=ON            ; Power-up Timer prendido
+CONFIG  PWRTE=OFF           ; Power-up Timer prendido
 CONFIG  MCLRE=OFF           ; MCLRE apagado
 CONFIG  CP=OFF              ; Code Protection bit apagado
 CONFIG  CPD=OFF             ; Data Code Protection bit apagado
@@ -26,7 +26,7 @@ CONFIG  CPD=OFF             ; Data Code Protection bit apagado
 CONFIG  BOREN=OFF           ; Brown Out Reset apagado
 CONFIG  IESO=OFF            ; Internal External Switchover bit apagado
 CONFIG  FCMEN=OFF           ; Fail-Safe Clock Monitor Enabled bit apagado
-CONFIG  LVP=ON		    ; low voltaje programming prendido
+CONFIG  LVP=OFF	    ; low voltaje programming prendido
 
 ;----------configuration word 2-------------------------------------------------
 CONFIG BOR4V=BOR40V	    ;configuraciÃ³n de brown out reset
@@ -86,6 +86,11 @@ PSECT udata_bank0
     decenas:	DS 1
     residuo:	DS 1
     dividendo:	DS 1
+    resta_o_no:	DS 1
+    temporal1:	DS 1
+    temporal2:	DS 1
+    temporal3:	DS 1
+    temporal:	DS 1
     
 ;variable contadora del timer1
     veces:	DS 1
@@ -95,7 +100,8 @@ PSECT udata_bank0
 ;---------------------- variables de interrupcion -----------------------------
 PSECT udata_shr	    
     W_TEMP:	    DS 1
-    STATUS_TEMP:    DS 1  
+    STATUS_TEMP:    DS 1 
+    tedejo:	    DS 1
     
 ;--------------------------- reset vector -------------------------------------
 PSECT resVect, class=CODE, abs, delta=2 ;
@@ -133,7 +139,8 @@ pop:
 ;-------------------------- subrutinas de interruption -----------------------
 in_on_change:
     banksel PORTB
-    btfss   PORTB,3
+    btfsc   PORTB,3
+    goto    $+7
     incf    modos
     andlw   00000011B
        
@@ -141,31 +148,61 @@ in_on_change:
     subwf   modos,W
     btfsc   ZERO
     clrf    modos
-    
-;    btfss   PORTB,4
-;    incf    tiempo_display1
-;    btfss   PORTB,5
-;    
+   
     
     
+    btfss   PORTB, 4  ;suma
+    incf    temporal
+    movlw   21
+    subwf   temporal, W
+    btfss   ZERO
+    goto    $+3
+    movlw   10
+    movwf   temporal
+    
+    btfss   PORTB, 5  ;resta
+    decf    temporal
+    movlw   9
+    subwf   temporal, W
+    btfss   ZERO
+    goto    ya
+    movlw   20
+    movwf   temporal
+    
+ ya:
     bcf	    RBIF
     return
 
-suma_timer1:
-;    decf    tiempo_display1    
-;    decf    tiempo_display2    
-;    decf    tiempo_display3    
+suma_timer1: 
+    reset_timer1
     incf    cont	;un pequeño delay para que la cuenta esté en sec
     movwf   cont, W	;
     sublw   4		;250ms * 4 = 1s
     btfss   ZERO	;
-    goto    $+2
+    goto    $+8
     clrf    cont	; ver si pasó el tiempo deseado
     incf    veces	;lleva la cuenta 
     
+    btfsc   tedejo, 0
+    goto    $+4
+    decf    verde1
+    btfsc   ZERO
+    bsf	    tedejo, 0
+ 
+    btfsc   tedejo, 1
+    goto    $+4
+    decf    verde2
+    btfsc   ZERO
+    bsf	    tedejo, 1
+ 
+    btfsc   tedejo, 2
+    goto    $+4
+    decf    verde3
+    btfsc   ZERO
+    bsf	    tedejo, 2
+ 
     movlw 1
     xorwf	titileo, F
-    reset_timer1
     return
  
 multiplexada:
@@ -217,7 +254,7 @@ display3:
     movf    display_var+3,W	;mando su valor a variables a unidades sem1
     movwf   PORTC	    
     bcf	    PORTD,4
-   return
+    return
 ;display sem3
 display4:
     bsf	    muxeo,4		;prendo el bit
@@ -253,20 +290,20 @@ PSECT code, delta=2, abs
 ORG 100h
 tabla:
     clrf    PCLATH
-    bsf	    PCLATH,0
-    andlw   0x0f
-    addwf   PCL,F
-    retlw   1000000B ;0
-    retlw   1111001B ;1
-    retlw   0100100B ;2
-    retlw   0110000B ;3
-    retlw   0011001B ;4
-    retlw   0010010B ;5
-    retlw   0000010B ;6
-    retlw   1111000B ;7
-    retlw   0000000B ;8
-    retlw   0010000B ;9
-    
+    bsf	    PCLATH, 0	;PCLATH = 01
+    ;andwf   00001111B
+    addwf   PCL		;PC = PCL + PCLATH + w
+    retlw   11000000B ;0
+    retlw   11111001B ;1
+    retlw   10100100B ;2
+    retlw   10110000B ;3
+    retlw   10011001B ;4
+    retlw   10010010B ;5
+    retlw   10000010B ;6
+    retlw   11111000B ;7
+    retlw   10000000B ;8
+    retlw   10010000B ;9
+            
 ;--------------------------configuraciones ------------------------------------
 main:    
     banksel	ANSEL	
@@ -292,14 +329,14 @@ main:
     bsf		WPUB,4	;weak pull up para boton 2
     bsf		WPUB,5	;weak pull up para boton 3
     ;configuracion de reloj
-    call    reloj_config
-    call    timer0_config
-    call    timer1_config
-    call    in_on_changeB
-    call    interruption_config
-    call    cargar_variables
+    call	reloj_config
+    call	timer0_config
+    call	timer1_config
+    call	in_on_changeB
+    call	interruption_config
+    call	cargar_variables
     
-    banksel	PORTA
+
     clrf	PORTA
     clrf	PORTB
     clrf	PORTC	    ; PortC como salida
@@ -316,37 +353,41 @@ main:
     bsf		sem_activo,6
     bsf		sem_activo,7
     bsf		sem_activo+1,0
-    clrf	titileo  ; asegurarse que comience en 0
+    clrf	titileo	    ; asegurarse que comience en 0
+    ;clrf	resta_o_no ; asegurarse que comience en 0
+    bcf		tedejo,0 ;
+    bsf		tedejo,1
+    bsf		tedejo,2
+    movlw	15
+    movwf	temporal
   
             
 ;------------------------ loop de programa ------------------------------------
 loop:
+;semaforo de funcionamiento normal    
     call	semaforo_normal	;funcionamiento normal
+;valores de displays    
+    movf	verde1,W
+    movwf	tiempo_display1
+    movf	tiempo_display1,W
+    movwf	dividendo   
+    call	separador_decenas
+    call	mandar_display_sem1
     
-;    movf	tiempo_display1,W
-;    movwf	dividendo   
-;    call	separador_decenas
-;    call	mandar_display_sem1
-;    movf	tiempo_display1, W
-;    call	tabla
-;    movwf	display_var
+    movf	verde2,W
+    movwf	tiempo_display2
+    movf	tiempo_display2,W
+    movwf	dividendo   
+    call	separador_decenas
+    call	mandar_display_sem2
     
-;    movlw	1000000B
-;    movwf	display_var+1
-;    
-;    movlw	tiempo_display2
-;    movwf	display_var+2
-;    
-;    movlw	1000000B
-;    movwf	display_var+3
-;    
-;    movlw	tiempo_display3
-;    movwf	display_var+4
-;    
-;    movlw	1000000B
-;    movwf	display_var+5
-    
-    
+    movf	verde3,W
+    movwf	tiempo_display3
+    movf	tiempo_display3,W
+    movwf	dividendo   
+    call	separador_decenas
+    call	mandar_display_sem3
+
     
 ;subrutinas para configuracion de los semaforos    
     movlw	1	    ;se asigna 1, para que se pueda compara
@@ -373,18 +414,21 @@ loop:
 ;------------------ subrutinas de loop --------------------------------
 ;--------- subrutinas de funcionamiento de semaforos
 semaforo_normal:	;prender y apagar luces normales
+       
     btfss   sem_activo,0
     call    sem_verde1
     btfss   sem_activo,1
     call    sem_verdetit1
     btfss   sem_activo,2
     call    sem_amarillo1
+    
     btfss   sem_activo,3
     call    sem_verde2
     btfss   sem_activo,4
     call    sem_verdetit2
     btfss   sem_activo,5
     call    sem_amarillo2
+    
     btfss   sem_activo,6
     call    sem_verde3
     btfss   sem_activo,7
@@ -405,11 +449,7 @@ sem_verde1: ;semaforo 1 en verde normal
     bsf	    PORTB,0 ;led roja semaforo 3
     bcf	    PORTB,1 ;led amarillo sem3 off
     bcf	    PORTB,2 ;led verde sem3 off
-    
-;    movf    tiempo_display1, W
-;    call    tabla
-;    movwf   display_var
-    
+       
     movwf   veces, W
     subwf   verde1, W
     btfss   ZERO
@@ -451,12 +491,16 @@ sem_amarillo1:
     bsf	    sem_activo,2
     bcf	    sem_activo,3
     clrf    veces
+    bsf	    tedejo,0
+;    bcf	    tedejo,1
     return
  
 sem_verde2:
+    bcf	    tedejo,1
+    
     bsf	    PORTA,0 ;led roja semaforo1, on
     bcf	    PORTA,1  ;led amarilla semaforo1 off
-    bcf	    PORTA, 2 ;led verde semaforo1 off
+    bcf	    PORTA,2  ;led verde semaforo1 off
     
     bcf	    PORTA,3 ;led roja semaforo 2, off
     bcf	    PORTA,4 ;led amarilla semaforo2, off
@@ -465,12 +509,6 @@ sem_verde2:
     bsf	    PORTB,0 ;led roja semaforo3, on
     bsf	    PORTB,0 ;led amarilla semaforo3, off
     bsf	    PORTB,0 ;led verde semaforo 3, off
-    
-;    decf    tiempo_display2
-;    movf    tiempo_display2, W
-;    call    tabla
-;    movwf   display_var
-    
     
     movwf   veces, W
     subwf   verde2, W
@@ -510,9 +548,13 @@ sem_amarillo2:
     bsf	    sem_activo,5
     bcf	    sem_activo,6
     clrf    veces
+    bsf	    tedejo,1
+    ;bcf	    tedejo,2
     return
 
 sem_verde3:
+    bcf	    tedejo,2
+    
     bsf	    PORTA,0 ;led roja sem1, on
     bcf	    PORTA,1 ;led amarilla sem1, off
     bcf	    PORTA,2 ;led verde sem1, off
@@ -524,12 +566,6 @@ sem_verde3:
     bcf	    PORTB,0 ;led roja sem3, off
     bcf	    PORTB,1 ;led amarilla sem3, off
     bsf	    PORTB,2 ;led verde sem3, on
-    
-;    movf    tiempo_display3, W
-;    call    tabla
-;    movwf   display_var
-;    
- ;   marianayandy4eva ?
     
     movwf   veces, W
     subwf   verde3, W
@@ -569,68 +605,60 @@ sem_amarillo3:
     bsf	    sem_activo+1,0
     bcf	    sem_activo,0
     clrf    veces
+    bsf	    tedejo,2
+    bcf	    tedejo,0
     return
     
 ;-------subrutinas de configuracion de semaforos    
 semaforo1: ;se configura el tiempo del semaforo 1
-    movlw	1111001B	;valor en display de semaforo se modificará
-    movwf	display_var+6
-    movlw	1000000B
-    movwf	display_var+7
-;    bsf		PORTE,0       
-;    bcf		PORTE,1		;valor en leds de semaforo en configuracio
-;    bcf		PORTE,2
-    btfss   PORTB,4
-    incf    PORTE
-    btfss   PORTB,5
-    decf    PORTE
-    
-    movf	   PORTE
-    movwf   display_var+7
   
-;    incf	tiempo_display1
-;    movf	tiempo_display1
-;    ;call	tabla
-;    movwf	display_var+7
-;    bsf		PORTE,0       
-;    bcf		PORTE,1		;valor en leds de semaforo en configuracio
-;    bcf		PORTE,2
+    bsf	    PORTE,0
+    bcf	    PORTE,1
+    bcf	    PORTE,2
     
-    
-;    incf	tiempo_display1
-;    movwf	tiempo_display1
-;    call	tabla
-;    movwf	display_var+7
-    
+    movf    temporal, W
+    movwf   temporal1
+   
+    movf	temporal,W
+    movwf	dividendo   
+    call	separador_decenas
+    call	mandar_display_config_semaforos
+     
     return
     
 semaforo2:  ;se configura el tiempo del semaforo 2
-    movlw	0100100B	;valor mostrando que semaforo se modificará
-    movwf	display_var+6
-    movlw	1000000B
-    movwf	display_var+7
     bcf		PORTE,0	    ;valor en leds de semaforo en configuracio
     bsf		PORTE,1
     bcf		PORTE,2
-    ;configurar sem2
+   
+    movf    temporal, W
+    movwf   temporal2
+   
+    
+    movf	temporal,W
+    movwf	dividendo   
+    call	separador_decenas
+    call	mandar_display_config_semaforos
+    
     return
     
 semaforo3:  ;se configura el tiempo del semaforo 3
-    movlw	0110000B	;valor mostrando que semaforo se modificará
-    movwf	display_var+6
-    movlw	1000000B
-    movwf	display_var+7
     bcf		PORTE,0
     bcf		PORTE,1		;valor en leds de semaforo en configuracio
     bsf		PORTE,2
-    ;configurar sem3
+    
+    
+    movf    temporal, W
+    movwf   temporal3
+    
+    movf	temporal,W
+    movwf	dividendo   
+    call	separador_decenas
+    call	mandar_display_config_semaforos
+    
     return
  
 aceptar_cancelar:
-    movlw   1111111B
-    movwf   display_var+6
-    movlw   1111111B
-    movwf   display_var+7
     bsf	    PORTE,0
     bsf	    PORTE,1
     bsf	    PORTE,2
@@ -641,6 +669,7 @@ aceptar_cancelar:
     movwf   display_var+7
     movlw   1111001B ;1
     movwf   display_var+6
+    call    aceptar_config
     
     btfsc   PORTB,5
     goto    $+5
@@ -648,13 +677,33 @@ aceptar_cancelar:
     movwf   display_var+7
     movlw   1000000B
     movwf   display_var+6
+    call    cancelar_config
     
     return
 
+aceptar_config:
+    movf    temporal1,W ;muevo el temporal a verde1 con su nuevo valor
+    movwf   verde1
+    movf    temporal2,W ;muevo el temporal a verde2 con su nuevo valor
+    movwf   verde2
+    movf    temporal3,W ;muevo el temporal a verde3 con su nuevo valor
+    movwf   verde3
+    reset_timer1	;reseteo para que comience en 0 otra vez
+    clrf    PORTE
+    clrf    display_var+7
+    clrf    display_var+6
+    return
+
+cancelar_config:
+    clrf    PORTE
+    clrf    display_var+7
+    clrf    display_var+6
+    return
+    
 ;------subrutinas de multiplexación---    
 separador_decenas:
     clrf    decenas
-    movlw   0xA
+    movlw   10
     subwf   dividendo, F
     btfsc   CARRY	;
     incf    decenas	; 
@@ -667,32 +716,43 @@ separador_decenas:
 mandar_display_sem1:
     movf    decenas,W
     call    tabla
-    movwf   display_var+1
+    movwf   display_var+1   ;manda valor a decenas de semaforo1
     
-    movwf   dividendo
+    movf   dividendo, W
     call    tabla
-    movwf   display_var
+    movwf   display_var	    ;manda valor a unidades de semaforo1
     return
     
 mandar_display_sem2:
     movf    decenas,W
     call    tabla
-    movwf   display_var+1
+    movwf   display_var+3   ;manda valor a decenas de semaforo2
     
-    movwf   dividendo
+    movf   dividendo, W
     call    tabla
-    movwf   display_var
+    movwf   display_var+2 ;manda valor a unidades de semaforo2
     return
     
 mandar_display_sem3:
     movf    decenas,W
     call    tabla
-    movwf   display_var+1
+    movwf   display_var+5   ;manda valor a decenas de semaforo3
     
-    movwf   dividendo
+    movf    dividendo, W
     call    tabla
-    movwf   display_var
+    movwf   display_var+4 ;manda valor a unidades de semaforo3
     return
+ 
+mandar_display_config_semaforos:
+    movf    decenas,W
+    call    tabla
+    movwf   display_var+7
+    
+    movf    dividendo,W
+    call    tabla
+    movwf   display_var+6
+       
+    return   
     
 ;------------------ subrutinas de configuración --------------------------------
 reloj_config:
@@ -752,34 +812,23 @@ interruption_config:
 cargar_variables:
     ;cargar valores para semaforo 1
     banksel	PORTA
-    movlw	4	    
-    movwf	verde1    
-    movlw	4
-    movwf	tiempo_display1 
-    movlw	3
-    movwf	verdetit1
-    movlw	3
-    movwf	amarillo1
-    
-;cargar valores para semaforo2
-    movlw	4	    
-    movwf	verde2
     movlw	8	    
-    movwf	tiempo_display2
+    movwf	verde1,F    
+    movwf	tiempo_display1,F 
+    movwf	verde2,F	    
+    movwf	tiempo_display2,F
+    movwf	verde3,F	    
+    movwf	tiempo_display3,F
+        
     movlw	3
-    movwf	verdetit2
-    movlw	3
-    movwf	amarillo2
+    movwf	verdetit1,F
+    movwf	amarillo1,F
+    movwf	verdetit2,F
+    movwf	amarillo2,F
+    movwf	verdetit3,F
+    movwf	amarillo3,F
     
-;cargar valores para semaforo2
-    movlw	4	    
-    movwf	verde3
-    movlw	12	    
-    movwf	tiempo_display3
-    movlw	3
-    movwf	verdetit3
-    movlw	3
-    movwf	amarillo3
+
     return
     
 
